@@ -1,0 +1,7 @@
+/.idea
+/dist
+go_build*
+
+*.pyc
+*.zip
+*.rar
