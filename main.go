@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/viper"
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"log"
@@ -188,6 +189,21 @@ func main() {
 		AddPortServer(p.Port, p.FilePath)
 	}
 	go func() {
+		var host string
+		var port string
+
+		config := viper.New()
+		config.AddConfigPath(".")
+		config.SetConfigName("config")
+		config.SetConfigType("ini")
+		if err := config.ReadInConfig(); err != nil {
+			host = "127.0.0.1"
+			port = "9998"
+		} else {
+			host = config.GetString("manage.host")
+			port = config.GetString("manage.port")
+		}
+
 		serveMux := http.NewServeMux()
 
 		serveMux.HandleFunc("/add_route", route_manage.AddRoute)
@@ -196,7 +212,7 @@ func main() {
 		serveMux.HandleFunc("/add_port", AddPort)
 		serveMux.HandleFunc("/drop_port", DropPort)
 
-		http.ListenAndServe(":9998", serveMux)
+		http.ListenAndServe(host+":"+port, serveMux)
 	}()
 	select {}
 }
