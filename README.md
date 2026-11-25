@@ -11,6 +11,7 @@ A reverse proxy whose rules can be changed at runtime, with Lua scripting suppor
 - 多端口监听：一个进程可同时代理多个端口，每个端口可做反向代理，并可选开启静态文件目录分享
 - 系统代理开关：每条路由可单独选择是否走系统代理，默认开启
 - 精确与正则路径匹配：精确匹配优先，正则使用 Go RE2 语法；正则命中的请求路径会透传到上游对应路径
+- 运行日志：记录端口/路由变更、请求匹配与上游地址、状态码、耗时，以及上游与 Lua 脚本错误
 - Lua 脚本注入：支持请求脚本与响应脚本，可修改 Header 和 Body
 - 配置持久化：规则保存在 `.route_map`（JSON），进程重启后自动加载
 
@@ -274,6 +275,25 @@ body = string.gsub(body, "foo", "bar")
 ```json
 {"8080":{"Port":"8080","FilePath":"./public","PortProxy":{"/api":{"Location":"/api","ProxyPass":"http://127.0.0.1:9000","LuaScriptResponse":"","LuaScriptRequest":"","Regex":false,"UseSystemProxy":true},"^/api/.*$":{"Location":"^/api/.*$","ProxyPass":"http://127.0.0.1:9001","LuaScriptResponse":"","LuaScriptRequest":"","Regex":true,"UseSystemProxy":false}}}}
 ```
+
+## 日志
+
+运行日志输出到控制台，时间精确到微秒，并为每个业务请求分配递增编号，便于串联同一次请求的多条日志。
+
+- 启动与配置：`.route_map` 加载结果、端口监听、端口与路由增删（含 `location`、`regex`、`proxy_pass`、系统代理与 Lua 开关）
+- 请求访问：客户端地址、方法、URI、Host、命中的路由、最终上游 URL、状态码、响应字节数、耗时
+- 异常：上游连接失败（返回 502）、Lua 脚本执行失败（记录错误并跳过脚本改动，请求继续转发）、配置文件读写失败、正则编译失败、管理接口非法请求
+
+示例：
+
+```
+2026/11/25 17:05:45.752234 [req 000001 :18080] GET /api/v1/users/42?x=1 host="127.0.0.1:18080" client=127.0.0.1:57442
+2026/11/25 17:05:45.752245 [req 000001 :18080] matched location="^/api/v1/.*$" regex=true proxy_pass="http://127.0.0.1:19000" system_proxy=false lua_request=true lua_response=true
+2026/11/25 17:05:45.752262 [req 000001 :18080] forward GET http://127.0.0.1:19000/api/v1/users/42?x=1 system_proxy=false
+2026/11/25 17:05:45.753128 [req 000001 :18080] status=200 bytes=20 duration=916µs
+```
+
+> 日志不会输出请求/响应 Header 与 Body，避免泄露凭证等敏感信息。
 
 ## 注意事项
 

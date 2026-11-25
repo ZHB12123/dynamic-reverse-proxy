@@ -167,7 +167,9 @@ func addRoute(route_mapping routeMapping) error {
 	p.UseSystemProxy = route_mapping.UseSystemProxy
 	p.regex = compiled
 	RouteMap[route_mapping.Port].PortProxy[route_mapping.Location] = p
-	log.Printf("Add route!\n")
+	log.Printf("Add route: port=%s location=%q regex=%t proxy_pass=%q system_proxy=%t lua_request=%t lua_response=%t",
+		route_mapping.Port, p.Location, p.Regex, p.ProxyPass, p.UsesSystemProxy(),
+		p.LuaScriptRequest != "", p.LuaScriptResponse != "")
 	return nil
 }
 
@@ -175,10 +177,12 @@ func dropRoute(route_mapping routeMapping) {
 	mtx.Lock()
 	defer mtx.Unlock()
 
+	existed := false
 	if table, ok := RouteMap[route_mapping.Port]; ok {
+		_, existed = table.PortProxy[route_mapping.Location]
 		delete(table.PortProxy, route_mapping.Location)
 	}
-	log.Printf("Drop route!\n")
+	log.Printf("Drop route: port=%s location=%q existed=%t", route_mapping.Port, route_mapping.Location, existed)
 }
 
 func AddRoute(w http.ResponseWriter, r *http.Request) {
@@ -186,10 +190,12 @@ func AddRoute(w http.ResponseWriter, r *http.Request) {
 	requestBody, _ := io.ReadAll(r.Body)
 	err := json.Unmarshal(requestBody, &a)
 	if err != nil {
+		log.Printf("API add_route invalid request from %s: %v", r.RemoteAddr, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := addRoute(a); err != nil {
+		log.Printf("API add_route rejected from %s: port=%q location=%q: %v", r.RemoteAddr, a.Port, a.Location, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -203,6 +209,7 @@ func DropRoute(w http.ResponseWriter, r *http.Request) {
 	requestBody, _ := io.ReadAll(r.Body)
 	err := json.Unmarshal(requestBody, &a)
 	if err != nil {
+		log.Printf("API drop_route invalid request from %s: %v", r.RemoteAddr, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -278,35 +285,64 @@ func MatchRoute(port string, requestPath string) (Proxy, bool) {
 
 func SaveRouteMap() {
 	mtx.RLock()
-	routeMapJson, _ := json.Marshal(RouteMap)
+	routeMapJson, err := json.Marshal(RouteMap)
 	mtx.RUnlock()
+	if err != nil {
+		log.Printf("Save route map: marshal failed: %v", err)
+		return
+	}
 
-	cacheFile, _ := os.OpenFile(".route_map", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
+	cacheFile, err := os.OpenFile(".route_map", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
+	if err != nil {
+		log.Printf("Save route map: open .route_map failed: %v", err)
+		return
+	}
 	defer cacheFile.Close()
-	cacheFile.Write(routeMapJson)
+
+	if _, err := cacheFile.Write(routeMapJson); err != nil {
+		log.Printf("Save route map: write .route_map failed: %v", err)
+	}
 }
 
 func LoadRouteMapCache() {
 	cacheFile, err := os.Open(".route_map")
 	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Load route map: .route_map not found, starting with empty config")
+		} else {
+			log.Printf("Load route map: open .route_map failed: %v", err)
+		}
 		return
 	}
 	defer cacheFile.Close()
 
-	cacheContent, _ := io.ReadAll(cacheFile)
+	cacheContent, err := io.ReadAll(cacheFile)
+	if err != nil {
+		log.Printf("Load route map: read .route_map failed: %v", err)
+		return
+	}
 
-	json.Unmarshal(cacheContent, &RouteMap)
+	if err := json.Unmarshal(cacheContent, &RouteMap); err != nil {
+		log.Printf("Load route map: parse .route_map failed: %v, starting with empty config", err)
+		RouteMap = make(map[string]PortRouteTable)
+		return
+	}
+	if RouteMap == nil {
+		RouteMap = make(map[string]PortRouteTable)
+	}
 
 	mtx.Lock()
 	defer mtx.Unlock()
 
+	totalRoutes := 0
 	for port, table := range RouteMap {
 		for location, proxy := range table.PortProxy {
+			totalRoutes++
 			proxy.regex = nil
 			if proxy.Regex {
 				compiled, err := regexp.Compile(proxy.Location)
 				if err != nil {
-					log.Printf("Invalid regex for port %s location %s: %v\n", port, location, err)
+					log.Printf("Load route map: invalid regex port=%s location=%q: %v, regex matching disabled for this route", port, location, err)
 					proxy.Regex = false
 				} else {
 					proxy.regex = compiled
@@ -315,4 +351,5 @@ func LoadRouteMapCache() {
 			table.PortProxy[location] = proxy
 		}
 	}
+	log.Printf("Load route map: loaded ports=%d routes=%d from .route_map", len(RouteMap), totalRoutes)
 }
