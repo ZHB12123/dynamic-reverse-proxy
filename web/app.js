@@ -14,12 +14,24 @@
     routeList: $("#routeList"),
     routeSummary: $("#routeSummary"),
     emptyState: $("#emptyState"),
+    routeModal: $("#routeModal"),
+    routeModalTitle: $("#routeModalTitle"),
+    routeModalSubtitle: $("#routeModalSubtitle"),
+    routeForm: $("#routeForm"),
+    locationInput: $("#locationInput"),
+    proxyPassInput: $("#proxyPassInput"),
+    regexInput: $("#regexInput"),
+    useSystemProxyInput: $("#useSystemProxyInput"),
+    luaRequestInput: $("#luaRequestInput"),
+    luaResponseInput: $("#luaResponseInput"),
+    routeSubmit: $("#routeSubmit"),
     toast: $("#toast"),
   };
 
   let routes = [];
   let expandedPort = null;
   let editing = null;
+  let modalPort = null;
   let toastTimer = null;
 
   function escapeHtml(value) {
@@ -124,16 +136,6 @@
     });
   }
 
-  function getRouteForm(port) {
-    const forms = el.routeList.querySelectorAll("form[data-route-form]");
-    for (let index = 0; index < forms.length; index += 1) {
-      if (forms[index].dataset.port === port) {
-        return forms[index];
-      }
-    }
-    return null;
-  }
-
   function render() {
     const totalRoutes = routes.reduce(function (sum, port) {
       return sum + ((port.mappings && port.mappings.length) || 0);
@@ -145,7 +147,11 @@
       expandedPort = null;
     }
     if (editing && !routeExists(editing.port, editing.location)) {
-      editing = null;
+      if (modalPort) {
+        closeRouteModal();
+      } else {
+        editing = null;
+      }
     }
 
     renderPortList();
@@ -203,7 +209,7 @@
               "<tr>" +
               '<td><code class="path">' + escapeHtml(mapping.location) + "</code></td>" +
               '<td><span class="upstream">' + escapeHtml(mapping.proxy_pass) + "</span></td>" +
-              "<td>" + scriptBadges(mapping) + "</td>" +
+              "<td>" + routeBadges(mapping) + "</td>" +
               '<td class="row-actions">' +
               '<button type="button" class="btn btn-ghost btn-sm" data-action="edit" data-port="' +
               portAttr + '" data-location="' + locationAttr + '">修改</button>' +
@@ -218,17 +224,27 @@
 
     return (
       '<div class="port-body">' +
+      '<div class="port-toolbar">' +
+      '<span class="muted">路由列表</span>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-action="add-route" data-port="' +
+      escapeHtml(port.port) + '">+ 添加路由</button>' +
+      "</div>" +
       '<div class="table-wrap"><table>' +
-      "<thead><tr><th>匹配路径</th><th>上游地址</th><th>Lua 脚本</th><th></th></tr></thead>" +
+      "<thead><tr><th>匹配路径</th><th>上游地址</th><th>标记</th><th></th></tr></thead>" +
       "<tbody>" + rows + "</tbody>" +
       "</table></div>" +
-      renderRouteForm(port) +
       "</div>"
     );
   }
 
-  function scriptBadges(mapping) {
+  function routeBadges(mapping) {
     const badges = [];
+    if (mapping.regex) {
+      badges.push('<span class="badge badge-regex">正则</span>');
+    }
+    if (mapping.use_system_proxy === false) {
+      badges.push('<span class="badge badge-direct">直连</span>');
+    }
     if (mapping.lua_script_request) {
       badges.push('<span class="badge badge-lua">请求脚本</span>');
     }
@@ -241,87 +257,36 @@
     return '<div class="script-badges">' + badges.join("") + "</div>";
   }
 
-  function renderRouteForm(port) {
-    return (
-      '<form class="route-form" data-route-form data-port="' + escapeHtml(port.port) + '" autocomplete="off">' +
-      '<div class="route-form-head">' +
-      "<div>" +
-      '<h3 data-role="form-title">添加转发路由</h3>' +
-      "<p>按请求路径精确匹配，命中后转发到上游服务。</p>" +
-      "</div>" +
-      '<span class="badge badge-edit hidden" data-role="edit-badge">编辑中</span>' +
-      "</div>" +
-      '<div class="route-fields">' +
-      '<label class="field">' +
-      "<span>匹配路径 <em>*</em></span>" +
-      '<input name="location" type="text" placeholder="/api" required>' +
-      "<small>精确匹配且区分大小写，例如 /api 不会匹配 /api/users。</small>" +
-      "</label>" +
-      '<label class="field">' +
-      "<span>上游地址 <em>*</em></span>" +
-      '<input name="proxyPass" type="text" placeholder="http://127.0.0.1:9000" required>' +
-      "<small>转发时使用该 URL 的路径，原始查询参数会原样保留。</small>" +
-      "</label>" +
-      "</div>" +
-      '<div class="route-fields">' +
-      '<label class="field">' +
-      "<span>请求脚本（Lua，可选）</span>" +
-      '<textarea name="luaRequest" rows="4" spellcheck="false" placeholder=\'headers["X-Proxy"] = "dynamic-reverse-proxy"\'></textarea>' +
-      "</label>" +
-      '<label class="field">' +
-      "<span>响应脚本（Lua，可选）</span>" +
-      '<textarea name="luaResponse" rows="4" spellcheck="false" placeholder=\'body = string.gsub(body, "foo", "bar")\'></textarea>' +
-      "</label>" +
-      "</div>" +
-      '<p class="form-tip">脚本可读写全局 <code>headers</code> 表，并给全局 <code>body</code> 赋值以替换消息体。</p>' +
-      '<div class="form-actions">' +
-      '<button type="submit" class="btn btn-primary" data-role="submit">添加路由</button>' +
-      '<button type="button" class="btn btn-ghost hidden" data-action="cancel-edit" data-role="cancel">取消编辑</button>' +
-      "</div>" +
-      "</form>"
-    );
+  function openRouteModal(port, mapping) {
+    modalPort = port;
+    editing = mapping ? { port: port, location: mapping.location } : null;
+
+    el.routeForm.reset();
+    el.routeModalTitle.textContent = mapping ? "编辑转发路由" : "添加转发路由";
+    el.routeModalSubtitle.textContent = "端口 :" + port;
+    el.routeSubmit.textContent = mapping ? "保存修改" : "添加路由";
+
+    if (mapping) {
+      el.locationInput.value = mapping.location;
+      el.proxyPassInput.value = mapping.proxy_pass || "";
+      el.regexInput.checked = Boolean(mapping.regex);
+      el.useSystemProxyInput.checked = mapping.use_system_proxy !== false;
+      el.luaRequestInput.value = mapping.lua_script_request || "";
+      el.luaResponseInput.value = mapping.lua_script_response || "";
+    }
+
+    el.routeModal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    el.locationInput.focus();
   }
 
-  function setFormMode(form, isEdit) {
-    form.querySelector('[data-role="form-title"]').textContent = isEdit ? "编辑转发路由" : "添加转发路由";
-    form.querySelector('[data-role="submit"]').textContent = isEdit ? "保存修改" : "添加路由";
-    form.querySelector('[data-role="edit-badge"]').classList.toggle("hidden", !isEdit);
-    form.querySelector('[data-role="cancel"]').classList.toggle("hidden", !isEdit);
-  }
-
-  function resetRouteForm(form) {
-    form.reset();
+  function closeRouteModal() {
+    el.routeModal.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+    modalPort = null;
     editing = null;
-    setFormMode(form, false);
-  }
-
-  function startEdit(port, location) {
-    const mapping = findMapping(port, location);
-    if (!mapping) {
-      toast("未找到该路由，请刷新后重试", "err");
-      return;
-    }
-
-    if (expandedPort !== port) {
-      expandedPort = port;
-      editing = null;
-      renderPortList();
-    }
-
-    const form = getRouteForm(port);
-    if (!form) {
-      toast("无法打开路由编辑表单，请刷新后重试", "err");
-      return;
-    }
-
-    editing = { port: port, location: location };
-    form.elements.location.value = mapping.location;
-    form.elements.proxyPass.value = mapping.proxy_pass || "";
-    form.elements.luaRequest.value = mapping.lua_script_request || "";
-    form.elements.luaResponse.value = mapping.lua_script_response || "";
-    setFormMode(form, true);
-    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    form.elements.location.focus({ preventScroll: true });
+    el.routeForm.reset();
+    el.routeSubmit.textContent = "添加路由";
   }
 
   function isHttpUrl(value) {
@@ -391,16 +356,18 @@
       return;
     }
 
-    if (action === "edit") {
-      startEdit(port, button.dataset.location);
+    if (action === "add-route") {
+      openRouteModal(port, null);
       return;
     }
 
-    if (action === "cancel-edit") {
-      const form = button.closest("form[data-route-form]");
-      if (form) {
-        resetRouteForm(form);
+    if (action === "edit") {
+      const mapping = findMapping(port, button.dataset.location);
+      if (!mapping) {
+        toast("未找到该路由，请刷新后重试", "err");
+        return;
       }
+      openRouteModal(port, mapping);
       return;
     }
 
@@ -439,19 +406,23 @@
     }
   });
 
-  el.routeList.addEventListener("submit", async function (event) {
-    const form = event.target.closest("form[data-route-form]");
-    if (!form) {
+  el.routeForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const port = modalPort;
+    if (!port) {
       return;
     }
-    event.preventDefault();
 
-    const port = form.dataset.port;
-    const location = form.elements.location.value.trim();
-    const proxyPass = form.elements.proxyPass.value.trim();
+    const location = el.locationInput.value.trim();
+    const proxyPass = el.proxyPassInput.value.trim();
+    const useRegex = el.regexInput.checked;
 
-    if (!location.startsWith("/")) {
-      toast("匹配路径必须以 / 开头", "err");
+    if (!location) {
+      toast("匹配路径不能为空", "err");
+      return;
+    }
+    if (!useRegex && !location.startsWith("/")) {
+      toast("精确匹配路径必须以 / 开头", "err");
       return;
     }
     if (!isHttpUrl(proxyPass)) {
@@ -461,14 +432,13 @@
 
     const wasEditing = Boolean(editing && editing.port === port);
     const oldLocation = wasEditing ? editing.location : null;
-    const submit = form.querySelector('[data-role="submit"]');
 
     const overwriting = routeExists(port, location) && !(wasEditing && oldLocation === location);
     if (overwriting && !window.confirm("端口 :" + port + " 已存在路径 " + location + " 的路由，保存后将覆盖。是否继续？")) {
       return;
     }
 
-    setBusy(submit, true, "保存中…");
+    setBusy(el.routeSubmit, true, "保存中…");
     try {
       if (wasEditing && oldLocation !== location) {
         await api("/drop_route", { port: port, location: oldLocation });
@@ -477,16 +447,28 @@
         port: port,
         location: location,
         proxy_pass: proxyPass,
-        lua_script_request: form.elements.luaRequest.value,
-        lua_script_response: form.elements.luaResponse.value,
+        regex: useRegex,
+        use_system_proxy: el.useSystemProxyInput.checked,
+        lua_script_request: el.luaRequestInput.value,
+        lua_script_response: el.luaResponseInput.value,
       });
-      editing = null;
+      closeRouteModal();
     } catch (err) {
       toast("保存失败：" + err.message, "err");
     } finally {
-      if (form.isConnected) {
-        setBusy(submit, false, editing && editing.port === port ? "保存修改" : "添加路由");
-      }
+      setBusy(el.routeSubmit, false, editing ? "保存修改" : "添加路由");
+    }
+  });
+
+  el.routeModal.addEventListener("click", function (event) {
+    if (event.target.closest('[data-action="close-route-modal"]')) {
+      closeRouteModal();
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !el.routeModal.classList.contains("hidden")) {
+      closeRouteModal();
     }
   });
 

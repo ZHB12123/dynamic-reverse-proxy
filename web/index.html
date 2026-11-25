@@ -53,9 +53,9 @@
         <ol class="steps">
           <li>添加监听端口</li>
           <li>点击端口卡片，展开二级配置</li>
-          <li>在展开区域添加或修改转发路由</li>
+          <li>点击“添加路由”或“修改”，在弹窗中配置路由</li>
         </ol>
-        <p class="muted">路由按请求路径精确匹配；每个端口的路由相互独立。</p>
+        <p class="muted">路由支持精确或正则匹配，并可单独选择是否使用系统代理；每个端口的路由相互独立。</p>
       </section>
     </div>
 
@@ -74,6 +74,60 @@
       </div>
     </section>
   </main>
+
+  <div id="routeModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="routeModalTitle">
+    <div class="modal-backdrop" data-action="close-route-modal"></div>
+    <div class="modal-card">
+      <header class="modal-head">
+        <div>
+          <h2 id="routeModalTitle">添加转发路由</h2>
+          <p id="routeModalSubtitle" class="muted"></p>
+        </div>
+        <button type="button" class="modal-close" data-action="close-route-modal" aria-label="关闭">×</button>
+      </header>
+      <form id="routeForm" class="form route-form" autocomplete="off">
+        <div class="route-fields">
+          <label class="field">
+            <span>匹配路径 <em>*</em></span>
+            <input id="locationInput" name="location" type="text" placeholder="/api" required>
+            <small>未勾选正则时精确匹配且区分大小写；勾选后按 Go RE2 语法匹配。</small>
+          </label>
+          <label class="field">
+            <span>上游地址 <em>*</em></span>
+            <input id="proxyPassInput" name="proxyPass" type="text" placeholder="http://127.0.0.1:9000" required>
+            <small>转发时使用该 URL 的路径，原始查询参数会原样保留。</small>
+          </label>
+        </div>
+        <div class="check-row-group">
+          <label class="check-row">
+            <input id="regexInput" name="regex" type="checkbox">
+            <span>使用正则表达式匹配路径</span>
+          </label>
+          <label class="check-row">
+            <input id="useSystemProxyInput" name="useSystemProxy" type="checkbox" checked>
+            <span>使用系统代理</span>
+          </label>
+        </div>
+        <p class="form-tip">精确匹配优先；多条正则命中时，模式更长者优先。</p>
+        <p class="form-tip">系统代理读取 <code>HTTP_PROXY</code> / <code>HTTPS_PROXY</code> / <code>NO_PROXY</code> 环境变量；关闭后直连上游。</p>
+        <div class="route-fields">
+          <label class="field">
+            <span>请求脚本（Lua，可选）</span>
+            <textarea id="luaRequestInput" name="luaRequest" rows="4" spellcheck="false" placeholder='headers["X-Proxy"] = "dynamic-reverse-proxy"'></textarea>
+          </label>
+          <label class="field">
+            <span>响应脚本（Lua，可选）</span>
+            <textarea id="luaResponseInput" name="luaResponse" rows="4" spellcheck="false" placeholder='body = string.gsub(body, "foo", "bar")'></textarea>
+          </label>
+        </div>
+        <p class="form-tip">脚本可读写全局 <code>headers</code> 表，并给全局 <code>body</code> 赋值以替换消息体。</p>
+        <footer class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-action="close-route-modal">取消</button>
+          <button type="submit" id="routeSubmit" class="btn btn-primary">添加路由</button>
+        </footer>
+      </form>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>

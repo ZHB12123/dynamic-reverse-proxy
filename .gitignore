@@ -23,6 +23,7 @@ go_build*
 
 # 运行时数据
 .route_map
+config.ini
 
 # 其他
 *.pyc

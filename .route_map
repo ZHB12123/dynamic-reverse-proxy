@@ -1,1 +1,1 @@
-{}
+{"8001":{"Port":"8001","FilePath":"","PortProxy":{"/aaa":{"Location":"/aaa","ProxyPass":"http://123.123.123.123:8000","LuaScriptResponse":"","LuaScriptRequest":"","Regex":false}}},"8002":{"Port":"8002","FilePath":"","PortProxy":{}}}

@@ -4,17 +4,19 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/spf13/viper"
 	lua "github.com/yuin/gopher-lua"
 
 	"reverse_proxy/lua_manage"
@@ -24,7 +26,16 @@ import (
 //go:embed web/*
 var webAssets embed.FS
 
+var directTransport = func() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return transport
+}()
+
 var mtx sync.Mutex
+
+var manageHost = flag.String("host", "127.0.0.1", "management API listen host")
+var managePort = flag.Int("port", 9998, "management API listen port")
 
 var portServers map[string]PortServer
 
@@ -36,11 +47,13 @@ type PortServer struct {
 }
 
 func (port_server *PortServer) proxyNew(w http.ResponseWriter, r *http.Request) {
-	requestPath := r.URL.Path
-	passProxy := route_manage.RouteMap[port_server.Port].PortProxy[requestPath]
+	passProxy, matched := route_manage.MatchRoute(port_server.Port, r.URL.Path)
 	port := port_server.Port
 
 	proxy := new(httputil.ReverseProxy)
+	if !passProxy.UsesSystemProxy() {
+		proxy.Transport = directTransport
+	}
 	proxy.Director = func(req *http.Request) {
 		if passProxy.Location != "" {
 			u, _ := url.Parse(passProxy.ProxyPass)
@@ -101,7 +114,7 @@ func (port_server *PortServer) proxyNew(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if route_manage.RouteMap[port_server.Port].PortProxy[r.URL.Path].Location != "" {
+	if matched {
 		proxy.ServeHTTP(w, r)
 	} else if portServers[port_server.Port].FileHandler != nil {
 		portServers[port_server.Port].FileHandler.ServeHTTP(w, r)
@@ -193,6 +206,11 @@ func AddPortServer(port string, file_path string) {
 }
 
 func main() {
+	flag.Parse()
+	if *managePort < 1 || *managePort > 65535 {
+		log.Fatalf("Invalid management port: %d\n", *managePort)
+	}
+
 	route_manage.RouteMap = make(map[string]route_manage.PortRouteTable)
 	lua_manage.LuaVMs = make(map[string]*lua.LState)
 
@@ -204,21 +222,6 @@ func main() {
 		AddPortServer(p.Port, p.FilePath)
 	}
 	go func() {
-		var host string
-		var port string
-
-		config := viper.New()
-		config.AddConfigPath(".")
-		config.SetConfigName("config")
-		config.SetConfigType("ini")
-		if err := config.ReadInConfig(); err != nil {
-			host = "127.0.0.1"
-			port = "9998"
-		} else {
-			host = config.GetString("manage.host")
-			port = config.GetString("manage.port")
-		}
-
 		serveMux := http.NewServeMux()
 
 		serveMux.HandleFunc("/add_route", route_manage.AddRoute)
@@ -234,7 +237,11 @@ func main() {
 			serveMux.Handle("/", http.FileServer(http.FS(webFS)))
 		}
 
-		http.ListenAndServe(host+":"+port, serveMux)
+		addr := net.JoinHostPort(*manageHost, strconv.Itoa(*managePort))
+		log.Printf("Management API listening on %s\n", addr)
+		if err := http.ListenAndServe(addr, serveMux); err != nil {
+			log.Printf("Management API stopped: %v\n", err)
+		}
 	}()
 	select {}
 }
