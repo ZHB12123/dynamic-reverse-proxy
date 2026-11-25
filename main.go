@@ -2,20 +2,27 @@ package main
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/viper"
-	lua "github.com/yuin/gopher-lua"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"reverse_proxy/lua_manage"
-	"reverse_proxy/route_manage"
 	"sync"
 	"time"
+
+	"github.com/spf13/viper"
+	lua "github.com/yuin/gopher-lua"
+
+	"reverse_proxy/lua_manage"
+	"reverse_proxy/route_manage"
 )
+
+//go:embed web/*
+var webAssets embed.FS
 
 var mtx sync.Mutex
 
@@ -43,7 +50,10 @@ func (port_server *PortServer) proxyNew(w http.ResponseWriter, r *http.Request) 
 			req.Host = u.Host
 
 			if passProxy.LuaScriptRequest != "" {
-				body, _ := io.ReadAll(req.Body)
+				var body []byte
+				if req.Body != nil {
+					body, _ = io.ReadAll(req.Body)
+				}
 
 				headers := make(map[string]string)
 				for key, value := range req.Header {
@@ -93,8 +103,10 @@ func (port_server *PortServer) proxyNew(w http.ResponseWriter, r *http.Request) 
 
 	if route_manage.RouteMap[port_server.Port].PortProxy[r.URL.Path].Location != "" {
 		proxy.ServeHTTP(w, r)
-	} else {
+	} else if portServers[port_server.Port].FileHandler != nil {
 		portServers[port_server.Port].FileHandler.ServeHTTP(w, r)
+	} else {
+		http.NotFound(w, r)
 	}
 }
 
@@ -169,7 +181,9 @@ func AddPortServer(port string, file_path string) {
 		s.Server = server
 		s.FilePath = file_path
 		s.Port = port
-		s.FileHandler = http.FileServer(http.Dir(file_path))
+		if file_path != "" {
+			s.FileHandler = http.FileServer(http.Dir(file_path))
+		}
 
 		serverMux.HandleFunc("/", s.proxyNew)
 
@@ -186,6 +200,7 @@ func main() {
 
 	route_manage.LoadRouteMapCache()
 	for _, p := range route_manage.RouteMap {
+		lua_manage.AddLuaVM(p.Port)
 		AddPortServer(p.Port, p.FilePath)
 	}
 	go func() {
@@ -211,6 +226,13 @@ func main() {
 		serveMux.HandleFunc("/query_route", route_manage.QueryRoute)
 		serveMux.HandleFunc("/add_port", AddPort)
 		serveMux.HandleFunc("/drop_port", DropPort)
+
+		webFS, err := fs.Sub(webAssets, "web")
+		if err != nil {
+			log.Printf("Load web assets failed: %v\n", err)
+		} else {
+			serveMux.Handle("/", http.FileServer(http.FS(webFS)))
+		}
 
 		http.ListenAndServe(host+":"+port, serveMux)
 	}()

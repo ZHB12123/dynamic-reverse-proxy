@@ -25,6 +25,7 @@ func ExecuteLua(luaVM *lua.LState, script string, headers map[string]string, bod
 		headersTable.RawSetString(key, lua.LString(value))
 	}
 	luaVM.SetGlobal("headers", headersTable)
+	luaVM.SetGlobal("body", lua.LString(body))
 
 	luaVM.DoString(script)
 

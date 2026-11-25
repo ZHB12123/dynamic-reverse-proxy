@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dynamic Reverse Proxy · 管理台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">⇄</div>
+      <div>
+        <h1>Dynamic Reverse Proxy</h1>
+        <p>动态反向代理管理台</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="connState" class="pill pill-idle">连接中…</span>
+      <button type="button" id="refreshBtn" class="btn btn-ghost">刷新配置</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <div class="forms-col">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>添加监听端口</h2>
+            <p>命中路由时转发到上游；可选择性分享静态文件目录。</p>
+          </div>
+        </div>
+        <form id="portForm" class="form" autocomplete="off">
+          <label class="field">
+            <span>端口 <em>*</em></span>
+            <input id="portInput" name="port" type="number" min="1" max="65535" placeholder="8080" required>
+          </label>
+          <label class="check-row" for="shareStatic">
+            <input id="shareStatic" type="checkbox" checked>
+            <span>分享静态文件目录</span>
+          </label>
+          <label class="field" id="filePathField">
+            <span>静态文件目录</span>
+            <input id="filePathInput" name="filePath" type="text" placeholder="./public" value="./public">
+            <small>关闭分享后无需填写，未命中路由的请求将返回 404。</small>
+          </label>
+          <button type="submit" class="btn btn-primary">添加端口</button>
+        </form>
+      </section>
+
+      <section class="card card-help">
+        <h2>使用步骤</h2>
+        <ol class="steps">
+          <li>添加监听端口</li>
+          <li>点击端口卡片，展开二级配置</li>
+          <li>在展开区域添加或修改转发路由</li>
+        </ol>
+        <p class="muted">路由按请求路径精确匹配；每个端口的路由相互独立。</p>
+      </section>
+    </div>
+
+    <section class="routes-col">
+      <div class="routes-head">
+        <div>
+          <h2>端口与路由</h2>
+          <p id="routeSummary" class="muted">加载中…</p>
+        </div>
+      </div>
+      <div id="routeList" class="route-list"></div>
+      <div id="emptyState" class="empty hidden">
+        <div class="empty-mark" aria-hidden="true">⌁</div>
+        <h3>还没有配置</h3>
+        <p>先在左侧添加一个监听端口，然后点击端口卡片展开路由配置。</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
