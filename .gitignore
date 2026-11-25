@@ -1,7 +1,30 @@
-/.idea
-/dist
-go_build*
+# IDE / 编辑器
+.idea/
+.vscode/
+.fleet/
+.history/
+.settings/
+*.iml
+*.swp
+*.swo
+*~
+.project
+.classpath
 
+# 系统文件
+.DS_Store
+
+# 构建产物
+/dist/
+/dynamic-reverse-proxy
+go_build*
+*.test
+*.out
+
+# 运行时数据
+.route_map
+
+# 其他
 *.pyc
 *.zip
 *.rar
