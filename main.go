@@ -57,7 +57,8 @@ func (port_server *PortServer) proxyNew(w http.ResponseWriter, r *http.Request) 
 	proxy.Director = func(req *http.Request) {
 		if passProxy.Location != "" {
 			u, _ := url.Parse(passProxy.ProxyPass)
-			req.URL.Path = u.Path
+			req.URL.Path = passProxy.UpstreamPath(req.URL.Path)
+			req.URL.RawPath = ""
 			req.URL.Scheme = u.Scheme
 			req.URL.Host = u.Host
 			req.Host = u.Host

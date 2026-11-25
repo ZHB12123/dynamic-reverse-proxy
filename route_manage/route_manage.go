@@ -6,8 +6,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -30,6 +32,70 @@ type Proxy struct {
 // Routes created before this option existed default to true.
 func (p Proxy) UsesSystemProxy() bool {
 	return p.UseSystemProxy == nil || *p.UseSystemProxy
+}
+
+var pathPlaceholderPattern = regexp.MustCompile(`\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|(\d+))`)
+
+// UpstreamPath returns the path to request from the upstream.
+//
+// Exact routes keep the old behaviour and use only the path of ProxyPass.
+// Regex routes forward the matched request path so that every path matched by
+// the expression reaches the corresponding path on the upstream, prefixed by
+// the path of ProxyPass when it is not empty. If the ProxyPass path contains
+// $1 or ${name} placeholders, they are expanded from the regex captures.
+func (p Proxy) UpstreamPath(requestPath string) string {
+	base := ""
+	if u, err := url.Parse(p.ProxyPass); err == nil {
+		base = u.Path
+	}
+
+	if !p.Regex || p.regex == nil {
+		return base
+	}
+
+	if pathPlaceholderPattern.MatchString(base) {
+		match := p.regex.FindStringSubmatch(requestPath)
+		if match == nil {
+			return base
+		}
+		return expandPathPlaceholders(base, match, p.regex.SubexpNames())
+	}
+	return joinPath(base, requestPath)
+}
+
+func joinPath(basePath string, requestPath string) string {
+	switch {
+	case basePath == "" || basePath == "/":
+		if requestPath == "" {
+			return "/"
+		}
+		return requestPath
+	case requestPath == "" || requestPath == "/":
+		return basePath
+	default:
+		return strings.TrimSuffix(basePath, "/") + "/" + strings.TrimPrefix(requestPath, "/")
+	}
+}
+
+func expandPathPlaceholders(basePath string, match []string, names []string) string {
+	return pathPlaceholderPattern.ReplaceAllStringFunc(basePath, func(token string) string {
+		part := pathPlaceholderPattern.FindStringSubmatch(token)
+
+		if name := part[1]; name != "" {
+			for i, captureName := range names {
+				if captureName == name && i < len(match) {
+					return match[i]
+				}
+			}
+			return token
+		}
+
+		index, err := strconv.Atoi(part[2])
+		if err != nil || index >= len(match) {
+			return token
+		}
+		return match[index]
+	})
 }
 
 type PortRouteTable struct {
